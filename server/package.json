@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node src/app.js",
     "start": "node src/app.js",
-    "test": "NODE_ENV=test node --test"
+    "test": "NODE_ENV=test DATABASE_URL= DOTENV_CONFIG_PATH=/dev/null node --test"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

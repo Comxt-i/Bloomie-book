@@ -17,7 +17,7 @@ export default function LoginPage() {
     setError('')
     try {
       acceptSession(await api('/auth/login', { method: 'POST', body: JSON.stringify(form) }))
-      navigate(location.state?.from || '/books')
+      navigate(location.state?.from || '/discover')
     } catch (err) {
       setError(err.message)
     } finally {

@@ -4,9 +4,11 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "concurrently -n api,web -c green,cyan \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
+    "dev:ai": "concurrently -n api,web,ml -c green,cyan,magenta \"npm --prefix server run dev\" \"npm --prefix client run dev\" \"npm run dev:ml\"",
     "build": "npm --prefix client run build",
     "start": "npm --prefix server start",
-    "test": "npm --prefix server test && npm --prefix client run lint"
+    "test": "npm --prefix server test && npm --prefix client run lint",
+    "dev:ml": "./ml/.venv/bin/python ml/service.py"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

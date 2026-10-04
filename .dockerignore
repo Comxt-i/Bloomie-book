@@ -1,0 +1,12 @@
+.git
+.env*
+!.env.deploy.example
+!**/.env.example
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+**/models
+**/swipes.json
+backups
+coverage

@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS books (
   owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   subject TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'อื่น ๆ',
   education_level TEXT NOT NULL,
   condition TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
@@ -23,6 +24,16 @@ CREATE TABLE IF NOT EXISTS books (
     CHECK (status IN ('AVAILABLE', 'RESERVED', 'EXCHANGED')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Preserve the original subject of existing books while introducing broad shelves.
+ALTER TABLE books ADD COLUMN IF NOT EXISTS category TEXT;
+UPDATE books SET category = CASE
+  WHEN subject IN ('คณิตศาสตร์', 'ภาษาอังกฤษ', 'ชีววิทยา', 'เคมี', 'ฟิสิกส์', 'TGAT') THEN 'การเรียนและสอบ'
+  WHEN subject IN ('นิยายและวรรณกรรม', 'การ์ตูนและมังงะ', 'ความรู้และพัฒนาตนเอง', 'การเรียนและสอบ', 'ธุรกิจและการเงิน', 'เด็กและเยาวชน') THEN subject
+  ELSE 'อื่น ๆ'
+END WHERE category IS NULL;
+ALTER TABLE books ALTER COLUMN category SET DEFAULT 'อื่น ๆ';
+ALTER TABLE books ALTER COLUMN category SET NOT NULL;
 
 CREATE TABLE IF NOT EXISTS book_preferences (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -48,4 +59,5 @@ CREATE TABLE IF NOT EXISTS exchange_requests (
 
 CREATE INDEX IF NOT EXISTS idx_books_owner ON books(owner_id);
 CREATE INDEX IF NOT EXISTS idx_books_status ON books(status);
+CREATE INDEX IF NOT EXISTS idx_books_category ON books(category);
 CREATE INDEX IF NOT EXISTS idx_requests_requester ON exchange_requests(requester_id);

@@ -1,69 +1,86 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
+import { useAuth } from '../context/AuthContext'
 import BookCard from '../components/BookCard'
+import Modal from '../components/Modal'
+import ExchangeForm from '../components/ExchangeForm'
+import { BOOK_CATEGORIES, bookCategory } from '../categories'
 
 export default function BooksPage() {
+  const { user, loading: authLoading } = useAuth()
   const [books, setBooks] = useState([])
+  const [engine, setEngine] = useState('')
+  const [syntheticDemo, setSyntheticDemo] = useState(false)
   const [myBooks, setMyBooks] = useState([])
   const [search, setSearch] = useState('')
-  const [subject, setSubject] = useState('ทั้งหมด')
+  const [category, setCategory] = useState('ทั้งหมด')
   const [selectedBook, setSelectedBook] = useState(null)
-  const [offerId, setOfferId] = useState('')
-  const [message, setMessage] = useState('')
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const [modalError, setModalError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [busyBook, setBusyBook] = useState(null)
+  const [reload, setReload] = useState(0)
+  const userId = user?.id
 
-  async function loadBooks() {
-    setLoading(true)
-    try {
-      const [recommended, mine] = await Promise.all([api('/recommendations'), api('/books/mine')])
-      setBooks(recommended.books)
+  useEffect(() => {
+    if (authLoading) return
+    let active = true
+    setLoading(true); setError('')
+    const requests = userId ? [api('/recommendations'), api('/books/mine')] : [api('/books'), Promise.resolve({ books: [] })]
+    Promise.all(requests).then(([recommended, mine]) => {
+      if (!active) return
+      setBooks(recommended.books.filter((book) => book.status === 'AVAILABLE'))
+      setEngine(recommended.engine || '')
+      setSyntheticDemo(recommended.syntheticDemo === true)
       setMyBooks(mine.books.filter((book) => book.status === 'AVAILABLE'))
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-    }
-  }
+    }).catch((err) => { if (active) setError(err.message) }).finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [userId, authLoading, reload])
 
-  useEffect(() => { loadBooks() }, [])
-
-  const subjects = useMemo(() => ['ทั้งหมด', ...new Set(books.map((book) => book.subject))], [books])
-  const filtered = books.filter((book) => {
-    const matchesSearch = `${book.title} ${book.subject}`.toLowerCase().includes(search.toLowerCase())
-    return matchesSearch && (subject === 'ทั้งหมด' || book.subject === subject)
-  })
+  const filtered = books.filter((book) => `${book.title} ${book.subject} ${bookCategory(book)}`.toLowerCase().includes(search.trim().toLowerCase()) && (category === 'ทั้งหมด' || bookCategory(book) === category))
+  const recommendationText = syntheticDemo
+    ? 'โมเดลสาธิตจากข้อมูลจำลอง — ผลจัดอันดับไม่ใช่ความแม่นยำกับผู้ใช้จริง'
+    : engine === 'content-knn'
+    ? 'จัดลำดับด้วย ML จากชื่อ หมวด และเล่มที่เคยสนใจ'
+    : engine && !['empty', 'interest-distance-fallback'].includes(engine)
+      ? 'จัดลำดับด้วยโมเดลที่ฝึกจากการกดสนใจจริง'
+      : 'เรียงตามหมวดที่คุณสนใจ'
 
   async function setPreference(bookId, preference) {
+    if (busyBook) return
+    setBusyBook(bookId); setError('')
     try {
       await api(`/books/${bookId}/preference`, { method: 'POST', body: JSON.stringify({ preference }) })
-      if (preference === 'DISLIKE') setBooks((current) => current.filter((book) => book.id !== bookId))
-      else setNotice('บันทึกเป็นหนังสือที่คุณสนใจแล้ว')
-    } catch (err) { setError(err.message) }
+      if (preference === 'DISLIKE') {
+        setBooks((current) => current.filter((book) => book.id !== bookId))
+        setCategory('ทั้งหมด')
+        setNotice('ซ่อนหนังสือเล่มนี้จากคำแนะนำแล้ว')
+      } else {
+        setBooks((current) => current.map((book) => book.id === bookId ? { ...book, preference: 'LIKE' } : book))
+        setNotice('บันทึกเป็นหนังสือที่คุณสนใจแล้ว')
+      }
+    } catch (err) { setError(err.message) } finally { setBusyBook(null) }
   }
+  function closeModal() { setSelectedBook(null) }
+  function openBook(book) { setSelectedBook(book); setModalError('') }
 
-  async function sendRequest(event) {
-    event.preventDefault()
-    setError('')
-    try {
-      await api('/exchange-requests', { method: 'POST', body: JSON.stringify({ offeredBookId: offerId, requestedBookId: selectedBook.id, message }) })
-      setNotice('ส่งคำขอแลกเรียบร้อยแล้ว ติดตามผลได้ที่หน้าคำขอแลก')
-      setSelectedBook(null)
-      setOfferId('')
-      setMessage('')
-    } catch (err) { setError(err.message) }
-  }
+  return <section className="page-container">
+    <div className="page-heading"><div><span className="eyebrow">YOUR NEXT CHAPTER</span><h1>ค้นหาเล่มถัดไป</h1><p>{user ? recommendationText : 'เลือกหมวดและเล่มที่ชอบ แล้วเข้าสู่ระบบเมื่อพร้อมเสนอแลก'}</p></div><Link className="button" to="/books/new">+ ลงหนังสือของฉัน</Link></div>
+    {notice && <div className="alert alert-success" role="status">{notice}<button aria-label="ปิดข้อความ" onClick={() => setNotice('')}>×</button></div>}
+    {error && <div className="alert alert-error" role="alert">{error}<button onClick={() => setReload((value) => value + 1)}>ลองใหม่</button></div>}
+    <div className="search-panel"><label className="search-box"><span aria-hidden="true">⌕</span><input aria-label="ค้นหาชื่อหนังสือหรือหมวด" placeholder="ค้นหาชื่อหนังสือหรือหมวด" value={search} onChange={(event) => setSearch(event.target.value)} /></label><div className="filter-row" aria-label="กรองตามหมวดหนังสือ">{['ทั้งหมด', ...BOOK_CATEGORIES].map((item) => <button key={item} aria-pressed={category === item} className={category === item ? 'filter active' : 'filter'} onClick={() => setCategory(item)}>{item}</button>)}</div></div>
+    {loading || authLoading ? <div className="empty-state" role="status">กำลังเปิดชั้นหนังสือ...</div> : !error && filtered.length === 0 ? <div className="empty-state"><span aria-hidden="true">⌕</span><h2>ยังไม่พบหนังสือ</h2><p>ลองเปลี่ยนคำค้นหรือเลือกหมวดอื่น</p><button className="button secondary" onClick={() => { setSearch(''); setCategory('ทั้งหมด') }}>ล้างตัวกรอง</button></div> : <div className="book-grid">{filtered.map((book) => <BookCard key={book.id} book={book} showScore={Boolean(user)} actions={<>
+      {user && <button className="icon-button dislike" disabled={busyBook !== null} onClick={() => setPreference(book.id, 'DISLIKE')} aria-label={`ไม่สนใจ ${book.title}`}>×</button>}
+      <button className="button button-card" onClick={() => openBook(book)}>{user ? 'ดูและเสนอแลก' : 'ดูรายละเอียด'}</button>
+      {user && <button className="icon-button like" disabled={busyBook !== null} onClick={() => setPreference(book.id, 'LIKE')} aria-pressed={book.preference === 'LIKE'} aria-label={`สนใจ ${book.title}`}>♥</button>}
+    </>} />)}</div>}
+    {selectedBook && <Modal titleId="exchange-title" onClose={closeModal}><span className="eyebrow">เล่มที่คุณสนใจ</span><h2 id="exchange-title">{selectedBook.title}</h2>
+      <p className="form-help">{bookCategory(selectedBook)}{selectedBook.subject !== bookCategory(selectedBook) ? ` · ${selectedBook.subject}` : ''} · สภาพ{selectedBook.condition}<br />{selectedBook.description || 'ยังไม่มีรายละเอียดเพิ่มเติม'}<br />เจ้าของ: {selectedBook.owner?.name}</p>
+      {modalError && <div className="alert alert-error" role="alert">{modalError}</div>}
+      {!user ? <div className="empty-state compact"><p>เข้าสู่ระบบเพื่อเลือกหนังสือของคุณมาเสนอแลก</p><Link className="button" to="/login" state={{ from: '/books' }}>เข้าสู่ระบบเพื่อเสนอแลก ↗</Link></div> : <ExchangeForm book={selectedBook} myBooks={myBooks} onSent={() => { setSelectedBook(null); setNotice('ส่งคำขอแลกอ่านแล้ว'); setReload((n) => n + 1) }} />}
 
-  return (
-    <section className="page-container">
-      <div className="page-heading"><div><span className="eyebrow">หนังสือแนะนำสำหรับคุณ</span><h1>ค้นหาเล่มถัดไป</h1><p>เรียงจากวิชา ระดับ และความสนใจที่คุณระบุไว้</p></div><Link className="button" to="/books/new">+ ลงหนังสือของคุณ</Link></div>
-      {notice && <div className="alert alert-success">{notice}<button onClick={() => setNotice('')}>×</button></div>}
-      {error && <div className="alert alert-error">{error}<button onClick={() => setError('')}>×</button></div>}
-      <div className="search-panel"><label className="search-box"><span>⌕</span><input placeholder="ค้นหาชื่อหนังสือหรือวิชา" value={search} onChange={(e) => setSearch(e.target.value)} /></label><div className="filter-row">{subjects.map((item) => <button key={item} className={subject === item ? 'filter active' : 'filter'} onClick={() => setSubject(item)}>{item}</button>)}</div></div>
-      {loading ? <div className="empty-state">กำลังค้นหาหนังสือที่เหมาะกับคุณ...</div> : filtered.length === 0 ? <div className="empty-state"><span>⌕</span><h2>ยังไม่พบหนังสือ</h2><p>ลองเปลี่ยนคำค้นหรือเลือกวิชาอื่น</p></div> : <div className="book-grid">{filtered.map((book) => <BookCard key={book.id} book={book} showScore actions={<><button className="icon-button dislike" onClick={() => setPreference(book.id, 'DISLIKE')} title="ไม่สนใจ">×</button><button className="button button-card" onClick={() => { setSelectedBook(book); setOfferId(myBooks[0]?.id || '') }}>เสนอแลก</button><button className="icon-button like" onClick={() => setPreference(book.id, 'LIKE')} title="สนใจ">♥</button></>} />)}</div>}
-      {selectedBook && <div className="modal-backdrop" role="presentation" onMouseDown={() => setSelectedBook(null)}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="exchange-title" onMouseDown={(e) => e.stopPropagation()}><button className="modal-close" onClick={() => setSelectedBook(null)}>×</button><span className="eyebrow">ส่งคำขอแลก</span><h2 id="exchange-title">อยากได้ “{selectedBook.title}”</h2>{myBooks.length === 0 ? <div className="empty-state compact"><p>คุณต้องลงหนังสือของตัวเองก่อนจึงจะเสนอแลกได้</p><Link className="button" to="/books/new">ลงหนังสือ</Link></div> : <form onSubmit={sendRequest}><label>เลือกหนังสือของคุณที่จะเสนอ<select value={offerId} onChange={(e) => setOfferId(e.target.value)} required>{myBooks.map((book) => <option key={book.id} value={book.id}>{book.title}</option>)}</select></label><label>ข้อความถึงเจ้าของหนังสือ<textarea rows="3" placeholder="เช่น สะดวกนัดแลกที่ห้องสมุดช่วงเย็น" value={message} onChange={(e) => setMessage(e.target.value)} /></label><button className="button button-full">ส่งคำขอแลก</button></form>}</section></div>}
-    </section>
-  )
+    </Modal>}
+  </section>
 }
