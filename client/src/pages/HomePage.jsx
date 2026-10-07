@@ -24,13 +24,13 @@ export default function HomePage() {
     <section className="hero-section">
       <div className="hero-copy">
         <span className="eyebrow">✦ หนังสือใกล้ตัว เพื่อนอ่านใกล้กัน</span>
-        <h1>เล่มของเธอ เราขออ่าน<br /><span className="underlined">แลกกันอ่าน</span> แล้วคืนกัน</h1>
-        <p>นิยาย การ์ตูน หนังสือความรู้ หรือแนวไหนที่คุณชอบ<br className="desktop-break" /> ปัดเจอเล่มใกล้ตัว นัดแลกกันอ่าน แล้วนำกลับมาคืน</p>
+        <h1>เล่มที่ใช่ อยู่ใกล้ตัว<br /><span className="underlined">แลกกันอ่าน</span> แล้วส่งคืน</h1>
+        <p>ไม่ว่าจะชอบนิยาย การ์ตูน หรือหนังสือความรู้ <br className="desktop-break" />ปัดเจอเล่มใกล้ตัว นัดแลกกันอ่าน </p>
         <div className="hero-actions">
           <Link className="button" to="/discover">เริ่มปัดหนังสือใกล้ฉัน <span aria-hidden="true">↗</span></Link>
           <Link className="text-link" to="/books/new">ลงหนังสือของฉัน <span aria-hidden="true">→</span></Link>
         </div>
-        <div className="trust-row"><span>✓ ไม่มีค่าธรรมเนียม</span><span>✓ หนังสือยังเป็นของเรา</span></div>
+        <div className="trust-row"><span>✓ ไม่มีค่าธรรมเนียม</span><span>✓ ได้อ่านหนังสือใหม่</span></div>
       </div>
       <div className="hero-visual" role="img" aria-label="ภาพวาดหนังสือหลายแนวในกรอบโค้ง พร้อมข้อความแลกอ่านแล้วคืนกัน">
         <div className="arch-panel"><span className="arch-label">A NEW CHAPTER, TOGETHER.</span><div className="book-stack">

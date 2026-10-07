@@ -10,16 +10,22 @@ ALTER TABLE exchange_requests ADD COLUMN IF NOT EXISTS meeting_at TIMESTAMPTZ;
 ALTER TABLE exchange_requests ADD COLUMN IF NOT EXISTS due_at TIMESTAMPTZ;
 ALTER TABLE exchange_requests ADD COLUMN IF NOT EXISTS received_by JSONB NOT NULL DEFAULT '[]';
 ALTER TABLE exchange_requests ADD COLUMN IF NOT EXISTS returned_by JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE exchange_requests ADD COLUMN IF NOT EXISTS cancel_by JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE exchange_requests ADD COLUMN IF NOT EXISTS issue_report JSONB;
+ALTER TABLE exchange_requests ADD COLUMN IF NOT EXISTS issue_resolution JSONB;
 CREATE TABLE IF NOT EXISTS swipe_events (
  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
  user_id UUID NOT NULL REFERENCES users(id),
  book_id UUID NOT NULL REFERENCES books(id),
  subject_match INTEGER NOT NULL,
  level_match INTEGER NOT NULL,
- distance_km DOUBLE PRECISION NOT NULL,
+ distance_km DOUBLE PRECISION,
  label INTEGER NOT NULL CHECK (label IN (0,1)),
+ source TEXT NOT NULL DEFAULT 'DISCOVERY' CHECK (source IN ('DISCOVERY', 'CATALOG')),
  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE swipe_events ALTER COLUMN distance_km DROP NOT NULL;
+ALTER TABLE swipe_events ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'DISCOVERY' CHECK (source IN ('DISCOVERY', 'CATALOG'));
 CREATE TABLE IF NOT EXISTS conversations (
  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
  first_user_id UUID NOT NULL REFERENCES users(id),

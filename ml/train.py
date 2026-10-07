@@ -34,7 +34,8 @@ def train(events, output, *, synthetic=False):
     rows = list(unique.values())
     if len(rows) < 100 or len({r['userId'] for r in rows}) < 15 or len({r['label'] for r in rows}) < 2:
         raise ValueError('Need at least 100 rated pairs, 15 users, and both LIKE/DISLIKE labels. No model or accuracy claim was produced.')
-    x = np.asarray([[r['subjectMatch'], r['levelMatch'], r['distanceKm']] for r in rows], dtype=float)
+    x = np.asarray([[r['subjectMatch'], r['levelMatch'], r['distanceKm'] if r.get('distanceKm') is not None else 0.0,
+                     int(r.get('distanceKm') is not None)] for r in rows], dtype=float)
     y = np.asarray([r['label'] for r in rows])
     groups = np.asarray([r['userId'] for r in rows])
     train_val, test = next(GroupShuffleSplit(n_splits=1, test_size=.2, random_state=42).split(x, y, groups))
@@ -65,7 +66,7 @@ def train(events, output, *, synthetic=False):
     }
     output.mkdir(parents=True, exist_ok=True)
     (output / 'evaluation.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
-    joblib.dump({'name': winner, 'model': model, 'data_source': report['data_source']}, output / 'selected.joblib')
+    joblib.dump({'name': winner, 'model': model, 'data_source': report['data_source'], 'feature_version': 2}, output / 'selected.joblib')
     return report
 
 

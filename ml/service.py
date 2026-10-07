@@ -10,9 +10,11 @@ from sklearn.neighbors import NearestNeighbors
 
 
 def features(profile, book):
+    distance = book.get('distanceKm')
     return [int(book.get('category', book.get('subject')) in profile.get('interests', [])),
             int(profile.get('educationLevel') not in (None, 'ทั่วไป') and book.get('educationLevel') == profile.get('educationLevel')),
-            float(book.get('distanceKm', 0))]
+            float(distance) if distance is not None else 0.0,
+            int(distance is not None)]
 
 
 def rank(payload, classifier=None):
@@ -21,6 +23,8 @@ def rank(payload, classifier=None):
     if not books:
         return {'ranking': [], 'engine': 'content-knn'}
     if classifier is not None and payload.get('useClassifier', True):
+        if classifier.get('feature_version') != 2:
+            raise ValueError('Retrain the classifier with the current feature schema')
         model = classifier['model']
         positive = list(model.classes_).index(1)
         scores = model.predict_proba([features(profile, b) for b in books])[:, positive]
@@ -78,6 +82,8 @@ if __name__ == '__main__':
     if model_path:
         # Load only a locally trained, trusted artifact. Never accept model uploads.
         Handler.classifier = joblib.load(Path(model_path))
+        if Handler.classifier.get('feature_version') != 2:
+            raise SystemExit('This classifier uses an old feature schema. Retrain with the current ml/train.py.')
         if Handler.classifier.get('data_source') == 'synthetic-demo' and os.environ.get('ALLOW_SYNTHETIC_MODEL') != '1':
             raise SystemExit('Synthetic demo model is disabled by default. Set ALLOW_SYNTHETIC_MODEL=1 only for a local demonstration.')
     host = os.environ.get('ML_HOST', '127.0.0.1')

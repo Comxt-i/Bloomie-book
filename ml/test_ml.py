@@ -47,12 +47,26 @@ class RecommendationTests(unittest.TestCase):
             self.assertTrue((output / 'swipes.synthetic.json').exists())
             artifact = joblib.load(output / 'selected.joblib')
             self.assertEqual(artifact['data_source'], 'synthetic-demo')
+            self.assertEqual(artifact['feature_version'], 2)
             prediction = rank({'profile': {'interests': ['นิยายและวรรณกรรม'], 'educationLevel': 'ทั่วไป'},
                                'books': [{'id': 'demo', 'title': 'นิยาย', 'category': 'นิยายและวรรณกรรม',
                                           'educationLevel': 'ทั่วไป', 'distanceKm': 5}]}, artifact)
             self.assertTrue(prediction['syntheticDemo'])
             with self.assertRaises(FileExistsError):
                 create_demo(output)
+
+    def test_classifier_accepts_catalog_events_without_distance(self):
+        events = synthetic_swipes()
+        for event in events[:100]:
+            event['distanceKm'] = None
+            event['source'] = 'CATALOG'
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            train(events, output, synthetic=True)
+            artifact = joblib.load(output / 'selected.joblib')
+            result = rank({'profile': {'interests': ['นิยายและวรรณกรรม'], 'educationLevel': 'ทั่วไป'},
+                           'books': [{'id': 'catalog', 'category': 'นิยายและวรรณกรรม', 'distanceKm': None}]}, artifact)
+            self.assertEqual(result['ranking'][0]['id'], 'catalog')
 
 if __name__ == '__main__':
     unittest.main()

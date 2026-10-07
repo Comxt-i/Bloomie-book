@@ -147,6 +147,7 @@ export class MemoryStore {
     this.messages = []
     this.preferences = []
     this.requests = []
+    this.bookImages = new Map()
   }
 
   async initialize() {}
@@ -206,11 +207,45 @@ export class MemoryStore {
     return this.enrichBook(book)
   }
 
+  async updateBook(bookId, ownerId, input) {
+    const book = this.books.find((item) => item.id === bookId)
+    if (!book) throw conflict('ไม่พบหนังสือ', 404)
+    if (book.ownerId !== ownerId) throw conflict('แก้ไขได้เฉพาะหนังสือของตัวเอง', 403)
+    if (book.status !== 'AVAILABLE') throw conflict('หนังสือเล่มนี้อยู่ระหว่างแลกอ่าน จึงยังแก้ไขไม่ได้')
+    Object.assign(book, input)
+    return this.enrichBook(book)
+  }
+
+  async getBookImage(bookId) {
+    return this.bookImages.get(bookId) || null
+  }
+
+  async saveBookImage(bookId, ownerId, mimeType, data) {
+    const book = await this.updateBook(bookId, ownerId, { imageUrl: `/api/books/${bookId}/image` })
+    this.bookImages.set(bookId, { mimeType, data: Buffer.from(data) })
+    return book
+  }
+
+  async removeBookImage(bookId, ownerId) {
+    const book = await this.updateBook(bookId, ownerId, { imageUrl: '' })
+    this.bookImages.delete(bookId)
+    return book
+  }
+
   async setPreference(userId, bookId, preference) {
     const existing = this.preferences.find((item) => item.userId === userId && item.bookId === bookId)
     if (existing) existing.preference = preference
     else this.preferences.push({ id: randomUUID(), userId, bookId, preference, createdAt: now() })
     return { bookId, preference }
+  }
+
+  async savePreference(userId, bookId, preference, event) {
+    const book = this.books.find((item) => item.id === bookId)
+    if (!book) throw conflict('ไม่พบหนังสือ', 404)
+    if (book.ownerId === userId || book.status !== 'AVAILABLE') throw conflict('หนังสือเล่มนี้ไม่พร้อมแลกอ่าน')
+    const result = await this.setPreference(userId, bookId, preference)
+    await this.recordSwipe({ ...event, userId, bookId, label: Number(preference === 'LIKE') })
+    return result
   }
 
   async recommendations(userId) {
@@ -232,6 +267,7 @@ export class MemoryStore {
   }
 
   async createRequest(requesterId, input) {
+    const terms = loanTerms(input)
     const offered = this.books.find((book) => book.id === input.offeredBookId)
     const requested = this.books.find((book) => book.id === input.requestedBookId)
     if (!offered || !requested) throw conflict('ไม่พบหนังสือ', 404)
@@ -242,7 +278,8 @@ export class MemoryStore {
       id: randomUUID(),
       requesterId,
       ...input,
-      ...loanTerms(input),
+      ...terms,
+      cancelBy: [],
       message: input.message || '',
       status: 'PENDING',
       createdAt: now(),
@@ -274,6 +311,64 @@ export class MemoryStore {
   async findRequestById(id) {
     const request = this.requests.find((item) => item.id === id)
     return request ? this.enrichRequest(request) : null
+  }
+
+  async reportIssue(id, actorId, reason) {
+    const request = this.requests.find((item) => item.id === id)
+    if (!request) throw conflict('ไม่พบคำขอ', 404)
+    const ownerId = this.books.find((book) => book.id === request.requestedBookId)?.ownerId
+    if (request.requesterId !== actorId && ownerId !== actorId) throw conflict('ไม่ใช่คู่แลกอ่านรายการนี้', 403)
+    if (!['ACCEPTED', 'ACTIVE'].includes(request.status)) throw conflict('รายการนี้ไม่อยู่ระหว่างแลกอ่าน')
+    if (!request.issueReport) request.issueReport = { by: actorId, reason, at: now() }
+    request.updatedAt = now()
+    return this.enrichRequest(request)
+  }
+
+  async listOpenIssues() {
+    return this.requests.filter((item) => item.issueReport && !item.issueResolution && ['ACCEPTED', 'ACTIVE'].includes(item.status)).map((item) => this.enrichRequest(item))
+  }
+
+  async listAdminIssues(status = 'open') {
+    return this.requests.filter((item) => item.issueReport && (status === 'resolved' ? Boolean(item.issueResolution) : !item.issueResolution && ['ACCEPTED', 'ACTIVE'].includes(item.status))).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map((item) => this.enrichRequest(item))
+  }
+
+  async adminOverview() {
+    return {
+      users: this.users.length,
+      books: this.books.length,
+      availableBooks: this.books.filter((book) => book.status === 'AVAILABLE').length,
+      pendingRequests: this.requests.filter((item) => item.status === 'PENDING').length,
+      activeRequests: this.requests.filter((item) => ['ACCEPTED', 'ACTIVE'].includes(item.status)).length,
+      openIssues: (await this.listOpenIssues()).length,
+    }
+  }
+
+  async adminUsers({ search, page, pageSize }) {
+    const needle = search.toLowerCase()
+    const rows = this.users.filter((user) => `${user.name} ${user.email}`.toLowerCase().includes(needle)).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    return { users: rows.slice((page - 1) * pageSize, page * pageSize).map((user) => ({ id: user.id, name: user.name, email: user.email, createdAt: user.createdAt, bookCount: this.books.filter((book) => book.ownerId === user.id).length })), total: rows.length, page, pageSize }
+  }
+
+  async adminBooks({ search, page, pageSize }) {
+    const needle = search.toLowerCase()
+    const rows = this.books.filter((book) => `${book.title} ${book.subject} ${book.category || ''} ${this.users.find((user) => user.id === book.ownerId)?.name || ''}`.toLowerCase().includes(needle)).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    return { books: rows.slice((page - 1) * pageSize, page * pageSize).map((book) => {
+      const owner = this.users.find((user) => user.id === book.ownerId)
+      return { ...this.enrichBook(book), owner: { id: owner.id, name: owner.name, email: owner.email } }
+    }), total: rows.length, page, pageSize }
+  }
+
+  async resolveIssue(id, adminId, outcome, note) {
+    const request = this.requests.find((item) => item.id === id)
+    if (!request) throw conflict('ไม่พบคำขอ', 404)
+    if (!request.issueReport || request.issueResolution || !['ACCEPTED', 'ACTIVE'].includes(request.status)) throw conflict('รายการนี้ไม่มีปัญหาที่รอแก้ไข')
+    if (outcome === 'COMPLETED' && request.status !== 'ACTIVE') throw conflict('รายการนี้ยังไม่เริ่มช่วงอ่าน')
+    request.status = outcome
+    request.issueResolution = { by: adminId, outcome, note, at: now() }
+    request.updatedAt = now()
+    this.books.find((book) => book.id === request.offeredBookId).status = 'AVAILABLE'
+    this.books.find((book) => book.id === request.requestedBookId).status = 'AVAILABLE'
+    return this.enrichRequest(request)
   }
 
   async updateRequestStatus(id, status, actorId) {
@@ -430,6 +525,66 @@ export class PostgresStore {
     return this.findBookById(result.rows[0].id)
   }
 
+  async updateBook(bookId, ownerId, input) {
+    const result = await this.pool.query(
+      `UPDATE books SET title=$3, subject=$4, category=$5, condition=$6, description=$7
+       WHERE id=$1 AND owner_id=$2 AND status='AVAILABLE' RETURNING id`,
+      [bookId, ownerId, input.title, input.subject, input.category, input.condition, input.description],
+    )
+    if (!result.rowCount) throw conflict('หนังสือเล่มนี้ไม่พร้อมให้แก้ไข')
+    return this.findBookById(bookId)
+  }
+
+  async getBookImage(bookId) {
+    const result = await this.pool.query('SELECT mime_type, data FROM book_images WHERE book_id=$1', [bookId])
+    const row = result.rows[0]
+    return row ? { mimeType: row.mime_type, data: row.data } : null
+  }
+
+  async saveBookImage(bookId, ownerId, mimeType, data) {
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const updated = await client.query(
+        "UPDATE books SET image_url=$3 WHERE id=$1 AND owner_id=$2 AND status='AVAILABLE' RETURNING id",
+        [bookId, ownerId, `/api/books/${bookId}/image`],
+      )
+      if (!updated.rowCount) throw conflict('หนังสือเล่มนี้ไม่พร้อมให้แก้ไข')
+      await client.query(
+        `INSERT INTO book_images (book_id, mime_type, data) VALUES ($1,$2,$3)
+         ON CONFLICT (book_id) DO UPDATE SET mime_type=EXCLUDED.mime_type, data=EXCLUDED.data, updated_at=NOW()`,
+        [bookId, mimeType, data],
+      )
+      await client.query('COMMIT')
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+    return this.findBookById(bookId)
+  }
+
+  async removeBookImage(bookId, ownerId) {
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const updated = await client.query(
+        "UPDATE books SET image_url='' WHERE id=$1 AND owner_id=$2 AND status='AVAILABLE' RETURNING id",
+        [bookId, ownerId],
+      )
+      if (!updated.rowCount) throw conflict('หนังสือเล่มนี้ไม่พร้อมให้แก้ไข')
+      await client.query('DELETE FROM book_images WHERE book_id=$1', [bookId])
+      await client.query('COMMIT')
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+    return this.findBookById(bookId)
+  }
+
   async setPreference(userId, bookId, preference) {
     await this.pool.query(
       `INSERT INTO book_preferences (user_id, book_id, preference) VALUES ($1, $2, $3)
@@ -437,6 +592,33 @@ export class PostgresStore {
       [userId, bookId, preference],
     )
     return { bookId, preference }
+  }
+
+  async savePreference(userId, bookId, preference, event) {
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const { rows: [book] } = await client.query('SELECT owner_id, status FROM books WHERE id = $1 FOR UPDATE', [bookId])
+      if (!book) throw conflict('ไม่พบหนังสือ', 404)
+      if (book.owner_id === userId || book.status !== 'AVAILABLE') throw conflict('หนังสือเล่มนี้ไม่พร้อมแลกอ่าน')
+      await client.query(
+        `INSERT INTO book_preferences (user_id, book_id, preference) VALUES ($1, $2, $3)
+         ON CONFLICT (user_id, book_id) DO UPDATE SET preference = EXCLUDED.preference`,
+        [userId, bookId, preference],
+      )
+      await client.query(
+        `INSERT INTO swipe_events (user_id, book_id, subject_match, level_match, distance_km, label, source)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [userId, bookId, event.subjectMatch, event.levelMatch, event.distanceKm, Number(preference === 'LIKE'), event.source],
+      )
+      await client.query('COMMIT')
+      return { bookId, preference }
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
   }
 
   async recommendations(userId) {
@@ -461,9 +643,9 @@ export class PostgresStore {
   }
 
   async createRequest(requesterId, input) {
+    const terms = loanTerms(input)
     const client = await this.pool.connect()
     let id
-    const terms = loanTerms(input)
     try {
       await client.query('BEGIN')
       const { rows: books } = await client.query('SELECT id, owner_id, status FROM books WHERE id IN ($1, $2) ORDER BY id FOR UPDATE', [input.offeredBookId, input.requestedBookId])
@@ -512,7 +694,8 @@ export class PostgresStore {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       loanDays: row.loan_days, meetingPlace: row.meeting_place, meetingAt: row.meeting_at,
-      dueAt: row.due_at, receivedBy: row.received_by, returnedBy: row.returned_by,
+      dueAt: row.due_at, receivedBy: row.received_by, returnedBy: row.returned_by, cancelBy: row.cancel_by,
+      issueReport: row.issue_report, issueResolution: row.issue_resolution,
       requester: { id: row.requester_id, name: row.requester_name },
       offeredBook: { id: row.offered_book_id, title: row.offered_title, ownerId: row.offered_owner_id },
       requestedBook: { id: row.requested_book_id, title: row.requested_title, ownerId: row.requested_owner_id, owner: { name: row.requested_owner_name } },
@@ -528,6 +711,81 @@ export class PostgresStore {
     return rows[0] || null
   }
 
+  async reportIssue(id, actorId, reason) {
+    const result = await this.pool.query(
+      `UPDATE exchange_requests r SET issue_report = COALESCE(issue_report, $3::jsonb), updated_at = NOW()
+       FROM books b WHERE r.id = $1 AND b.id = r.requested_book_id
+       AND (r.requester_id = $2 OR b.owner_id = $2)
+       AND r.status IN ('ACCEPTED', 'ACTIVE') RETURNING r.id`,
+      [id, actorId, JSON.stringify({ by: actorId, reason, at: now() })],
+    )
+    if (!result.rowCount) throw conflict('ไม่พบรายการที่แจ้งปัญหาได้', 403)
+    return this.findRequestById(id)
+  }
+
+  async listOpenIssues() {
+    return this.requestRows("WHERE r.issue_report IS NOT NULL AND r.issue_resolution IS NULL AND r.status IN ('ACCEPTED', 'ACTIVE')", [])
+  }
+
+  async listAdminIssues(status = 'open') {
+    return this.requestRows(status === 'resolved' ? 'WHERE r.issue_report IS NOT NULL AND r.issue_resolution IS NOT NULL' : "WHERE r.issue_report IS NOT NULL AND r.issue_resolution IS NULL AND r.status IN ('ACCEPTED', 'ACTIVE')", [])
+  }
+
+  async adminOverview() {
+    const { rows: [row] } = await this.pool.query(`SELECT
+      (SELECT COUNT(*)::int FROM users) AS users,
+      (SELECT COUNT(*)::int FROM books) AS books,
+      (SELECT COUNT(*)::int FROM books WHERE status = 'AVAILABLE') AS available_books,
+      (SELECT COUNT(*)::int FROM exchange_requests WHERE status = 'PENDING') AS pending_requests,
+      (SELECT COUNT(*)::int FROM exchange_requests WHERE status IN ('ACCEPTED', 'ACTIVE')) AS active_requests,
+      (SELECT COUNT(*)::int FROM exchange_requests WHERE issue_report IS NOT NULL AND issue_resolution IS NULL AND status IN ('ACCEPTED', 'ACTIVE')) AS open_issues`)
+    return { users: row.users, books: row.books, availableBooks: row.available_books, pendingRequests: row.pending_requests, activeRequests: row.active_requests, openIssues: row.open_issues }
+  }
+
+  async adminUsers({ search, page, pageSize }) {
+    const needle = `%${search}%`
+    const where = 'WHERE u.name ILIKE $1 OR u.email ILIKE $1'
+    const [{ rows: [count] }, { rows }] = await Promise.all([
+      this.pool.query(`SELECT COUNT(*)::int AS total FROM users u ${where}`, [needle]),
+      this.pool.query(`SELECT u.id, u.name, u.email, u.created_at, COUNT(b.id)::int AS book_count
+        FROM users u LEFT JOIN books b ON b.owner_id = u.id ${where}
+        GROUP BY u.id ORDER BY u.created_at DESC, u.id DESC LIMIT $2 OFFSET $3`, [needle, pageSize, (page - 1) * pageSize]),
+    ])
+    return { users: rows.map((row) => ({ id: row.id, name: row.name, email: row.email, createdAt: row.created_at, bookCount: row.book_count })), total: count.total, page, pageSize }
+  }
+
+  async adminBooks({ search, page, pageSize }) {
+    const needle = `%${search}%`
+    const where = 'WHERE b.title ILIKE $1 OR b.subject ILIKE $1 OR b.category ILIKE $1 OR u.name ILIKE $1'
+    const [{ rows: [count] }, { rows }] = await Promise.all([
+      this.pool.query(`SELECT COUNT(*)::int AS total FROM books b JOIN users u ON u.id = b.owner_id ${where}`, [needle]),
+      this.pool.query(`SELECT b.*, u.name AS owner_name, u.email AS owner_email FROM books b JOIN users u ON u.id = b.owner_id ${where}
+        ORDER BY b.created_at DESC, b.id DESC LIMIT $2 OFFSET $3`, [needle, pageSize, (page - 1) * pageSize]),
+    ])
+    return { books: rows.map((row) => ({ ...mapBook(row), owner: { id: row.owner_id, name: row.owner_name, email: row.owner_email } })), total: count.total, page, pageSize }
+  }
+
+  async resolveIssue(id, adminId, outcome, note) {
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const initial = await client.query('SELECT offered_book_id, requested_book_id FROM exchange_requests WHERE id = $1', [id])
+      if (!initial.rowCount) throw conflict('ไม่พบคำขอ', 404)
+      const { offered_book_id: offeredId, requested_book_id: requestedId } = initial.rows[0]
+      await client.query('SELECT id FROM books WHERE id IN ($1, $2) ORDER BY id FOR UPDATE', [offeredId, requestedId])
+      const { rows: [request] } = await client.query('SELECT status, issue_report, issue_resolution FROM exchange_requests WHERE id = $1 FOR UPDATE', [id])
+      if (!request.issue_report || request.issue_resolution || !['ACCEPTED', 'ACTIVE'].includes(request.status)) throw conflict('รายการนี้ไม่มีปัญหาที่รอแก้ไข')
+      if (outcome === 'COMPLETED' && request.status !== 'ACTIVE') throw conflict('รายการนี้ยังไม่เริ่มช่วงอ่าน')
+      await client.query('UPDATE exchange_requests SET status = $1, issue_resolution = $2, updated_at = NOW() WHERE id = $3', [outcome, JSON.stringify({ by: adminId, outcome, note, at: now() }), id])
+      await client.query("UPDATE books SET status = 'AVAILABLE' WHERE id IN ($1, $2)", [offeredId, requestedId])
+      await client.query('COMMIT')
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally { client.release() }
+    return this.findRequestById(id)
+  }
+
   async updateRequestStatus(id, status, actorId) {
     const client = await this.pool.connect()
     try {
@@ -540,8 +798,8 @@ export class PostgresStore {
       const { rows: [row] } = await client.query('SELECT * FROM exchange_requests WHERE id = $1 FOR UPDATE', [id])
       const offered = mapBook(books.find((book) => book.id === offeredId))
       const requested = mapBook(books.find((book) => book.id === requestedId))
-      const result = transitionLoan({ status: row.status, requesterId: row.requester_id, loanDays: row.loan_days, receivedBy: row.received_by, returnedBy: row.returned_by, dueAt: row.due_at }, status, actorId, offered, requested)
-      await client.query('UPDATE exchange_requests SET status = $1, received_by = $2, returned_by = $3, due_at = $4, updated_at = NOW() WHERE id = $5', [result.request.status, JSON.stringify(result.request.receivedBy), JSON.stringify(result.request.returnedBy), result.request.dueAt, id])
+      const result = transitionLoan({ status: row.status, requesterId: row.requester_id, loanDays: row.loan_days, receivedBy: row.received_by, returnedBy: row.returned_by, cancelBy: row.cancel_by, dueAt: row.due_at }, status, actorId, offered, requested)
+      await client.query('UPDATE exchange_requests SET status = $1, received_by = $2, returned_by = $3, cancel_by = $4, due_at = $5, updated_at = NOW() WHERE id = $6', [result.request.status, JSON.stringify(result.request.receivedBy), JSON.stringify(result.request.returnedBy), JSON.stringify(result.request.cancelBy), result.request.dueAt, id])
       const bookStatus = result.bookStatus
       if (bookStatus) await client.query('UPDATE books SET status = $1 WHERE id IN ($2, $3)', [bookStatus, offeredId, requestedId])
       if (status === 'ACCEPTED') {

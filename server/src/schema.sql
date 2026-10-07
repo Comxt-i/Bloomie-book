@@ -25,6 +25,14 @@ CREATE TABLE IF NOT EXISTS books (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Store uploaded covers with the database so VM/container restarts do not lose them.
+CREATE TABLE IF NOT EXISTS book_images (
+  book_id UUID PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
+  mime_type TEXT NOT NULL CHECK (mime_type IN ('image/jpeg', 'image/png', 'image/webp')),
+  data BYTEA NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Preserve the original subject of existing books while introducing broad shelves.
 ALTER TABLE books ADD COLUMN IF NOT EXISTS category TEXT;
 UPDATE books SET category = CASE

@@ -25,15 +25,19 @@ export function loanTerms(input) {
 export function transitionLoan(request, action, actorId, offered, requested) {
   const isRequester = request.requesterId === actorId, isOwner = requested.ownerId === actorId
   const receivedBy = request.receivedBy || [], returnedBy = request.returnedBy || []
+  const cancelBy = request.cancelBy || []
   const allowed = {
     ACCEPTED: isOwner && request.status === 'PENDING',
     REJECTED: isOwner && request.status === 'PENDING',
     CANCELLED: (isRequester || isOwner) && ['PENDING', 'ACCEPTED'].includes(request.status) && receivedBy.length === 0,
-    RECEIVED: (isRequester || isOwner) && request.status === 'ACCEPTED' && !receivedBy.includes(actorId),
+    RECEIVED: (isRequester || isOwner) && request.status === 'ACCEPTED' && cancelBy.length === 0 && !receivedBy.includes(actorId),
+    UNDO_RECEIVED: (isRequester || isOwner) && request.status === 'ACCEPTED' && receivedBy.length === 1 && receivedBy.includes(actorId),
+    CANCEL_REQUESTED: (isRequester || isOwner) && request.status === 'ACCEPTED' && receivedBy.length > 0 && !cancelBy.includes(actorId),
+    CANCEL_WITHDRAWN: (isRequester || isOwner) && request.status === 'ACCEPTED' && cancelBy.includes(actorId),
     RETURNED: (isRequester || isOwner) && request.status === 'ACTIVE' && !returnedBy.includes(actorId),
   }
   if (!allowed[action]) throw problem('สถานะเปลี่ยนไปแล้ว หรือยังทำขั้นตอนนี้ไม่ได้', 403)
-  const result = { ...request, receivedBy: [...receivedBy], returnedBy: [...returnedBy], updatedAt: new Date().toISOString() }
+  const result = { ...request, receivedBy: [...receivedBy], returnedBy: [...returnedBy], cancelBy: [...cancelBy], updatedAt: new Date().toISOString() }
   let bookStatus = null
   if (action === 'ACCEPTED') {
     if (offered.status !== 'AVAILABLE' || requested.status !== 'AVAILABLE') throw problem('หนังสือบางเล่มไม่พร้อมแลกอ่านแล้ว')
@@ -44,6 +48,14 @@ export function transitionLoan(request, action, actorId, offered, requested) {
       result.status = 'ACTIVE'; bookStatus = 'ON_LOAN'
       result.dueAt = new Date(Date.now() + request.loanDays * 86400000).toISOString()
     }
+  } else if (action === 'UNDO_RECEIVED') {
+    result.receivedBy = []
+    result.cancelBy = []
+  } else if (action === 'CANCEL_REQUESTED') {
+    result.cancelBy.push(actorId)
+    if (result.cancelBy.length === 2) { result.status = 'CANCELLED'; bookStatus = 'AVAILABLE' }
+  } else if (action === 'CANCEL_WITHDRAWN') {
+    result.cancelBy = result.cancelBy.filter((id) => id !== actorId)
   } else if (action === 'RETURNED') {
     result.returnedBy.push(actorId)
     if (result.returnedBy.length === 2) { result.status = 'COMPLETED'; bookStatus = 'AVAILABLE' }
@@ -85,6 +97,14 @@ function withReasons(books, likedBooks) {
 async function rankBooks(user, books, likedBooks, nearby, request) {
   if (!books.length) return { books, engine: 'empty' }
   const explained = withReasons(books, likedBooks)
+  const interests = new Set(preferredCategories(user.interests))
+  const likedCategories = new Set(likedBooks.map((book) => book.category || categoryOf(book.subject)))
+  const fallbackScore = (book) => {
+    const category = book.category || categoryOf(book.subject)
+    return Number(category && interests.has(category)) * 4
+      + Number(user.educationLevel && user.educationLevel !== 'ทั่วไป' && user.educationLevel === book.educationLevel) * 2
+      + Number(category && likedCategories.has(category))
+  }
   try {
     const response = await request(`${process.env.ML_SERVICE_URL || 'http://127.0.0.1:4190'}/rank`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(2500),
@@ -99,7 +119,7 @@ async function rankBooks(user, books, likedBooks, nearby, request) {
     if (explained.some((book) => !Number.isFinite(scores.get(book.id)))) throw new Error('Invalid ranking')
     return { books: explained.sort((a, b) => scores.get(b.id) - scores.get(a.id) || (nearby ? a.distanceKm - b.distanceKm : b.score - a.score)), engine: result.engine, syntheticDemo: result.syntheticDemo === true }
   } catch {
-    return { books: explained.sort((a, b) => nearby ? b.reasons.length - a.reasons.length || a.distanceKm - b.distanceKm : b.score - a.score), engine: 'interest-distance-fallback' }
+    return { books: explained.sort((a, b) => nearby ? fallbackScore(b) - fallbackScore(a) || a.distanceKm - b.distanceKm : b.score - a.score), engine: 'interest-distance-fallback' }
   }
 }
 

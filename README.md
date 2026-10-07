@@ -1,4 +1,4 @@
-# PUN AAN — แลกกันอ่าน แล้วคืนกัน
+# Bloomie Book — แลกกันอ่าน แล้วคืนกัน
 
 เว็บหาเพื่อนใกล้ตัวเพื่อแลกหนังสืออ่านชั่วคราว หนังสือยังเป็นของเจ้าของเดิม ไม่มีการโอนกรรมสิทธิ์หรือระบบชำระเงิน / ขนส่ง
 
@@ -39,6 +39,8 @@ npm run dev
 
 บัญชีสาธิต `natcha@demo.com` และ `kanittha@demo.com` ใช้รหัสผ่าน `demo1234` ทั้งคู่ ตำแหน่งสาธิตอยู่บริเวณหาดใหญ่ (ไม่ใช่ตำแหน่งจริงของผู้ใช้) เปลี่ยนพื้นที่จากเมนูได้ ข้อมูลในโหมดสาธิตหายเมื่อปิด API
 
+การลงหนังสือเลือกไฟล์รูปปกจากเครื่องได้ รองรับ JPG, PNG และ WebP ขนาดไม่เกิน 2 MB (ไม่บังคับ) เปิดหน้า “หนังสือของฉัน” แล้วกด “แก้ไขหนังสือ” เพื่อเปลี่ยนข้อมูล รูปปก หรือลบรูปปกได้เฉพาะเล่มที่ยังพร้อมแลกอ่าน ระบบเก็บรูปที่อัปโหลดไว้ใน PostgreSQL พร้อมข้อมูลหนังสือ จึงต้องรวมฐานข้อมูลในการสำรองข้อมูล; โหมดสาธิตในหน่วยความจำยังหายเมื่อปิด API เช่นเดิม รูปที่ลงไว้ก่อนหน้านี้ด้วย URL ยังคงแสดงได้ และจะถูกแทนที่เมื่อเลือกไฟล์รูปใหม่
+
 ## ระบบแนะนำ Python / scikit-learn
 
 ```bash
@@ -56,7 +58,7 @@ npm run dev:ml
 - หน้า “ค้นหาเล่มถัดไป” และหน้าปัดหนังสือใช้บริการจัดอันดับเดียวกัน หน้าแรกใช้ content-KNN เพราะไม่มีข้อมูลระยะทางของทุกเล่ม ส่วนหน้าปัดสามารถใช้โมเดลที่ฝึกแล้วเมื่อมีข้อมูลและเปิดใช้งานโมเดล เหตุผลรายเล่มระบุเฉพาะสัญญาณที่ตรวจได้ เช่น หมวดที่สนใจหรือหมวดเดียวกับเล่มที่เคยกดชอบ ไม่อ้างว่าเป็นคำอธิบายภายในโมเดล
 - KNN ค้นหาความคล้ายคลึงนี้ไม่ใช่โมเดลที่เรียนจากผลการแลกจริง และไม่แสดงเปอร์เซ็นต์ความแม่นยำ
 - ถ้าบริการ Python ไม่ทำงาน ระบบสำรองใช้ความสนใจและระยะทาง พร้อมระบุ engine ใน API ไม่มีการแอบอ้างว่าใช้ ML สำเร็จ
-- ระบบเก็บ feature snapshot และ Like/Dislike ใน `swipe_events` เพื่อทำ supervised learning เมื่อมีข้อมูลจริงเพียงพอ
+- ระบบเก็บ feature snapshot และ Like/Dislike จากทั้งหน้าค้นหาและหน้าปัดหนังสือใน `swipe_events` เป็นรายการเดียวกับการบันทึกความชอบ ถ้าไม่ได้ตั้งพื้นที่จะเก็บระยะทางเป็นค่าว่างและระบุแหล่งที่มาของการกด
 
 ### เปรียบเทียบโมเดลที่เรียน
 
@@ -72,6 +74,8 @@ ml/.venv/bin/python ml/train.py ml/swipes.json --output ml/models
 เปรียบเทียบ KNN classifier, Decision Tree และ Logistic Regression โดย deduplicate คู่ผู้ใช้/หนังสือ แบ่งผู้ใช้ไม่ซ้ำกันใน training/validation/test 60/20/20 เลือกด้วย validation F1 และประเมิน test เพียงครั้งเดียว มี Precision, Recall, F1 และ Precision@5 / Recall@5 บนหนังสือที่มีการปัดเท่านั้น ไม่ใช่ทั้งคลังและไม่ใช่ผลความสำเร็จในการคืนหนังสือ
 
 ต้องมีอย่างน้อย 100 คู่ที่ปัดจากผู้ใช้ 15 คนและสอง label ทุก split ถ้าข้อมูลไม่พอจะหยุดโดยไม่สร้างโมเดลหรือค่าความแม่นยำ ไม่มีการสร้างข้อมูลจำลองเพื่ออ้างผลจริง
+
+โมเดลรุ่นปัจจุบันใช้ feature 4 ค่า: หมวดตรงความสนใจ, ระดับการศึกษาตรง, ระยะทาง และตัวบอกว่าทราบระยะทางหรือไม่ โมเดลที่เคยฝึกก่อนการเปลี่ยนนี้ต้องเทรนใหม่ด้วย `ml/train.py` รุ่นปัจจุบัน
 
 ### ทดลองเทรนด้วยข้อมูลจำลอง
 
@@ -95,11 +99,14 @@ ml/.venv/bin/python ml/demo_train.py
 
 ชุด `compose.yaml` ใช้ Caddy เสิร์ฟเว็บและ HTTPS, Node API, PostgreSQL แบบเก็บข้อมูลใน volume และ Python ML ในเครือข่าย Docker ภายใน เปิดออกสู่สาธารณะเฉพาะพอร์ต 80/443 โมเดลจากข้อมูลจำลองจะไม่ถูกนำขึ้นไปด้วย; ML เริ่มจาก content-KNN
 
+ถ้าฝึกโมเดลด้วยข้อมูลจริงแล้ว ให้วาง `selected.joblib` ใน `ml/models/` บน VM และกำหนด `ML_MODEL_PATH=/app/models/selected.joblib` ใน `.env.deploy` จากนั้นรัน `docker compose --env-file .env.deploy up -d --force-recreate ml` ไฟล์โมเดลถูก mount แบบอ่านอย่างเดียวและไม่ถูก commit ขึ้น Git หากไม่มีโมเดลให้ปล่อย `ML_MODEL_PATH` ว่างไว้
+
 1. เตรียม VM ที่ติดตั้ง Docker Engine และ Docker Compose, ชี้ DNS ของโดเมนมาที่ IP ของ VM และเปิดพอร์ต TCP 80/443 (UDP 443 เป็นตัวเลือกสำหรับ HTTP/3)
 2. นำโค้ดขึ้น VM แล้วสร้างไฟล์ secret จากตัวอย่าง:
 
    ```bash
    cp .env.deploy.example .env.deploy
+   mkdir -p ml/models
    openssl rand -hex 32
    openssl rand -hex 32
    ```
@@ -115,6 +122,40 @@ ml/.venv/bin/python ml/demo_train.py
 
 4. เปิด `https://<APP_DOMAIN>` และตรวจ `https://<APP_DOMAIN>/api/health` ต้องได้ `storage: "postgresql"` บริการ ML ตรวจได้จากภายในด้วย `docker compose --env-file .env.deploy exec ml python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:4190/health').read().decode())"`
 5. ก่อนเปิดรับผู้ใช้จริง สมัครบัญชีทดสอบ ลงหนังสือหนึ่งเล่ม แล้ว `docker compose --env-file .env.deploy restart api` เพื่อตรวจว่าบัญชีและหนังสือยังอยู่ จากนั้นทำ backup และลองกู้คืนบนฐานข้อมูลแยก
+
+### Google Cloud deployment ปัจจุบัน
+
+โปรเจ็ค `bloomie-book-yanwadee-2026` ใช้ Compute Engine VM `bloomie-book-vm` ใน `asia-southeast1-b` (e2-medium, Ubuntu 24.04, ดิสก์ 30 GB) และ IP คงที่ `35.198.238.157` เข้าใช้งานชั่วคราวที่ `https://35-198-238-157.sslip.io/` โดเมน `sslip.io` เป็นบริการภายนอกสำหรับทดสอบ ควรเปลี่ยนเป็นโดเมนที่ควบคุม DNS เองก่อนใช้งานจริง
+
+VM ใช้ VPC แยก `bloomie-net` และรับ SSH ผ่าน IAP เท่านั้น คำสั่งเข้าเครื่อง (ล็อกอินด้วยบัญชี Google Cloud ที่มีสิทธิ์):
+
+```bash
+gcloud compute ssh bloomie-book-vm \
+  --project=bloomie-book-yanwadee-2026 --zone=asia-southeast1-b \
+  --tunnel-through-iap
+cd ~/bloomie-book
+sudo docker compose --env-file .env.deploy ps
+```
+
+โค้ดที่นำขึ้น VM เป็น snapshot ของ working tree ณ วัน deploy รวมการแก้ไขที่ยังไม่ได้ commit ไม่ได้ผูกการอัปเดตกับ GitHub อัตโนมัติ ไฟล์ `deploy/gce-bootstrap.sh` ติดตั้ง Docker บน Ubuntu ส่วน `deploy/gce-configure.sh <domain>` สร้าง `.env.deploy` พร้อมรหัสลับแบบสุ่มครั้งแรกและไม่เขียนทับไฟล์เดิม
+
+เมื่อมีโดเมนจริง ให้ตั้ง DNS A record ไปที่ IP ด้านบน แก้ `APP_DOMAIN` ใน `~/bloomie-book/.env.deploy` (ไม่ใส่ `https://`) แล้วรัน `sudo docker compose --env-file .env.deploy up -d --force-recreate api web` Caddy จะขอใบรับรองใหม่ ตรวจเว็บและ `/api/health` อีกครั้งก่อนประกาศ URL ใหม่
+
+VM, ดิสก์ และ IPv4 สาธารณะมีค่าใช้จ่ายต่อเนื่อง เมื่อต้องการพักการทดสอบ ใช้ `gcloud compute instances stop bloomie-book-vm --project=bloomie-book-yanwadee-2026 --zone=asia-southeast1-b` การหยุด VM ไม่ลบดิสก์หรือ IP และไม่ใช่การสำรองข้อมูล
+
+### รายการแลกอ่านที่มีปัญหา
+
+ถ้าฝ่ายหนึ่งกดยืนยันรับผิด สามารถถอนการยืนยันได้ก่อนอีกฝ่ายกดรับ หากหนังสือกลับไปอยู่กับเจ้าของครบแล้ว ทั้งสองฝ่ายกดยืนยันปิดรายการเพื่อปลดจองได้ รายการที่ยังตกลงกันไม่ได้ให้กด “แจ้งปัญหาการรับหรือคืน” หนังสือจะยังไม่ถูกปลดจองจนกว่าผู้ดูแลตรวจสอบ
+
+ผู้ดูแลต้องเป็นบัญชี Bloomie Book ที่สมัครแล้วก่อน (บัญชี Google Cloud ไม่ได้กลายเป็นผู้ดูแลในแอปโดยอัตโนมัติ) หารหัสบัญชีบน VM ด้วยคำสั่งด้านล่าง แล้วนำ `id` ของบัญชีที่เชื่อถือได้ใส่ `ADMIN_USER_IDS` ใน `.env.deploy` (หลายบัญชีคั่นด้วยจุลภาค) จากนั้นรัน `sudo docker compose --env-file .env.deploy up -d --force-recreate api` เจ้าของบัญชีออกจากระบบและเข้าสู่ระบบใหม่ หรือรีโหลดหน้า เพื่อให้เมนู **Admin Dashboard** ที่ `/admin` ปรากฏ
+
+```bash
+docker compose --env-file .env.deploy exec -T db sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT id, name, email FROM users ORDER BY created_at DESC LIMIT 20"'
+```
+
+Admin Dashboard แสดงสถิติผู้ใช้ หนังสือ และรายการแลกอ่าน ค้นหาผู้ใช้/หนังสือแบบแบ่งหน้า และดูข้อพิพาททั้งที่รอตรวจและตรวจแล้ว สามารถบันทึกผลการตรวจจากหน้าเว็บโดยระบุเหตุผลอย่างน้อย 10 ตัวอักษรได้ หน้าเว็บไม่มีปุ่มลบผู้ใช้หรือหนังสือ เพื่อป้องกันการลบข้อมูลที่ผูกกับรายการแลกอ่านโดยไม่ตั้งใจ
+
+API สำหรับส่วนนี้คือ `GET /api/admin/overview`, `GET /api/admin/users`, `GET /api/admin/books`, `GET /api/admin/exchange-requests/issues?status=open|resolved` และ `PATCH /api/admin/exchange-requests/:id/resolve` พร้อม Bearer token และ JSON เช่น `{"outcome":"CANCELLED","note":"ตรวจสอบแล้ว หนังสือกลับถึงเจ้าของทั้งสองเล่ม"}` **ตรวจสอบการคืนหนังสือจริงก่อน** เพราะการปิดรายการจะทำให้หนังสือทั้งสองเล่มกลับมาพร้อมแลกอีกครั้ง ถ้ารายการเริ่มช่วงอ่านแล้วและคืนครบ สามารถใช้ `COMPLETED` ได้ หากยังไม่ได้ตั้ง `ADMIN_USER_IDS` จะไม่มีใครเข้าถึง endpoint ผู้ดูแล
 
 ถ้าเริ่มไม่สำเร็จ ใช้ `docker compose --env-file .env.deploy logs --tail=100 api ml web db` เพื่อตรวจข้อผิดพลาด Caddy ขอและต่ออายุใบรับรอง HTTPS ให้เมื่อ DNS/พอร์ตพร้อม หน้าเว็บส่ง `/api` ผ่าน Caddy ไปยัง API จึงไม่พึ่ง Vite dev proxy ใน production บริการ API จะไม่เริ่มในโหมด production หากไม่มีฐานข้อมูล, `JWT_SECRET` ที่แข็งแรง หรือ origin แบบ HTTPS
 

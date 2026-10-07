@@ -34,7 +34,7 @@ export default function RegisterPage() {
 
   return (
     <section className="auth-layout">
-      <div className="auth-intro"><span className="eyebrow">เริ่มต้นกับ PUN AAN</span><h1>เจอเพื่อนอ่าน<br />ใกล้ตัวคุณ</h1><p>เลือกแนวหนังสือที่ชอบ เพื่อให้เราแนะนำเล่มใกล้ตัวที่ตรงใจคุณ</p></div>
+      <div className="auth-intro"><span className="eyebrow">เริ่มต้นกับ Bloomie Book</span><h1>เจอเพื่อนอ่าน<br />ใกล้ตัวคุณ</h1><p>เลือกแนวหนังสือที่ชอบ เพื่อให้เราแนะนำเล่มใกล้ตัวที่ตรงใจคุณ</p></div>
       <form className="form-card" onSubmit={handleSubmit}>
         <h2>สมัครสมาชิก</h2>
         {error && <div className="alert alert-error">{error}</div>}
